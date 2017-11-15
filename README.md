@@ -11,7 +11,7 @@ The purpose of this project is to allow you to write a small bit of Java code th
 To use this project, fork it in GitHub and clone it. After that, in your favorite Java IDE, open the `App.java` file and write your code in the `rewriteCommit` method, e.g.:
 
 ```java
-private static void rewriteCommit(RevCommit commit, CommitBuilder builder) {
+private static void rewriteCommit(RevCommit commit, CommitBuilder builder, NoteData note) {
     ///////////////////////////////////////////////////////////////////////
     // Rewrite the commit here!
     ///////////////////////////////////////////////////////////////////////

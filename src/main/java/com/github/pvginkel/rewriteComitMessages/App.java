@@ -3,11 +3,14 @@ package com.github.pvginkel.rewriteComitMessages;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.lib.*;
+import org.eclipse.jgit.notes.Note;
 import org.eclipse.jgit.revwalk.RevCommit;
+import org.eclipse.jgit.revwalk.RevWalk;
 import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 public class App {
@@ -25,6 +28,15 @@ public class App {
             Repository repo = repoBuilder.build();
             Git git = new Git(repo)
         ) {
+            Map<ObjectId, String> noteMap = new HashMap<>();
+
+            for (Note note : git.notesList().call()) {
+                noteMap.put(
+                    note.toObjectId(),
+                    new String(repo.open(note.getData()).getBytes(), StandardCharsets.UTF_8)
+                );
+            }
+
             List<RevCommit> commits = new ArrayList<>();
 
             for (RevCommit revCommit : git.log().all().call()) {
@@ -49,7 +61,11 @@ public class App {
                     builder.addParentId(parent.getId());
                 }
 
-                rewriteCommit(commit, builder);
+                String oldNote = noteMap.get(commit.getId());
+                NoteData note = new NoteData();
+                note.data = oldNote;
+
+                rewriteCommit(commit, builder, note);
 
                 ObjectId[] parents = builder.getParentIds();
                 for (int j = 0; j < parents.length; j++) {
@@ -59,17 +75,46 @@ public class App {
                     }
                 }
 
+                ObjectId newId;
+
                 try (ObjectInserter inserter = repo.newObjectInserter()) {
-                    idMap.put(commit.getId(), inserter.insert(builder));
+                    newId = inserter.insert(builder);
                     inserter.flush();
+                }
+
+                idMap.put(commit.getId(), newId);
+
+                try (RevWalk walk = new RevWalk(repo)) {
+                    RevCommit newCommit = walk.parseCommit(newId);
+                    boolean writeNote;
+
+                    if (commit.getId().equals(newId)) {
+                        writeNote = !stringEquals(oldNote, note.data);
+                    } else {
+                        writeNote = note.data != null;
+                    }
+
+                    if (writeNote) {
+                        System.out.println("\tWriting notes");
+                        if (note.data != null) {
+                            git.notesAdd().setObjectId(newCommit).setMessage(note.data).call();
+                        } else {
+                            git.notesRemove().setObjectId(newCommit).call();
+                        }
+                    }
                 }
             }
 
             for (Map.Entry<String, Ref> ref : repo.getAllRefs().entrySet()) {
+                ObjectId newRefId = idMap.get(ref.getValue().getObjectId());
+                if (newRefId == null) {
+                    continue;
+                }
+
                 System.out.println("Rewriting " + ref.getValue());
 
                 RefUpdate refUpdate = repo.updateRef(ref.getKey());
-                refUpdate.setNewObjectId(idMap.get(ref.getValue().getObjectId()));
+                refUpdate.setNewObjectId(newRefId);
 
                 RefUpdate.Result result = refUpdate.forceUpdate();
 
@@ -86,7 +131,15 @@ public class App {
         }
     }
 
-    private static void rewriteCommit(RevCommit commit, CommitBuilder builder) {
+    private static boolean stringEquals(String a, String b) {
+        return a == null ? b == null : a.equals(b);
+    }
+
+    private static class NoteData {
+        String data;
+    }
+
+    private static void rewriteCommit(RevCommit commit, CommitBuilder builder, NoteData note) {
         ///////////////////////////////////////////////////////////////////////
         // Rewrite the commit here!
         ///////////////////////////////////////////////////////////////////////

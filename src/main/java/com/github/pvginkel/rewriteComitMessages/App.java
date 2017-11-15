@@ -1,6 +1,7 @@
 package com.github.pvginkel.rewriteComitMessages;
 
 import org.eclipse.jgit.api.Git;
+import org.eclipse.jgit.api.LogCommand;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.lib.*;
 import org.eclipse.jgit.notes.Note;
@@ -12,6 +13,8 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
+
+import static org.eclipse.jgit.lib.RefDatabase.ALL;
 
 public class App {
     public static void main(String[] args) throws IOException, GitAPIException {
@@ -37,9 +40,26 @@ public class App {
                 );
             }
 
+            LogCommand logCommand = git.log();
+
+            for (Ref ref : repo.getRefDatabase().getRefs(ALL).values()) {
+                if (ref.getName().equals(Constants.R_NOTES_COMMITS)) {
+                    continue;
+                }
+                if (!ref.isPeeled()) {
+                    ref = repo.peel(ref);
+                }
+
+                ObjectId objectId = ref.getPeeledObjectId();
+                if (objectId == null) {
+                    objectId = ref.getObjectId();
+                }
+                logCommand.add(objectId);
+            }
+
             List<RevCommit> commits = new ArrayList<>();
 
-            for (RevCommit revCommit : git.log().all().call()) {
+            for (RevCommit revCommit : logCommand.call()) {
                 commits.add(revCommit);
             }
 

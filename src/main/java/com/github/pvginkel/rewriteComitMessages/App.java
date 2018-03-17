@@ -1,20 +1,21 @@
 package com.github.pvginkel.rewriteComitMessages;
 
 import org.eclipse.jgit.api.Git;
-import org.eclipse.jgit.api.LogCommand;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.lib.*;
 import org.eclipse.jgit.notes.Note;
 import org.eclipse.jgit.revwalk.RevCommit;
+import org.eclipse.jgit.revwalk.RevSort;
 import org.eclipse.jgit.revwalk.RevWalk;
 import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
 
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.util.*;
-
-import static org.eclipse.jgit.lib.RefDatabase.ALL;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 public class App {
     public static void main(String[] args) throws IOException, GitAPIException {
@@ -40,34 +41,35 @@ public class App {
                 );
             }
 
-            LogCommand logCommand = git.log();
-
-            for (Ref ref : repo.getRefDatabase().getRefs(ALL).values()) {
-                if (ref.getName().equals(Constants.R_NOTES_COMMITS)) {
-                    continue;
-                }
-                if (!ref.isPeeled()) {
-                    ref = repo.peel(ref);
-                }
-
-                ObjectId objectId = ref.getPeeledObjectId();
-                if (objectId == null) {
-                    objectId = ref.getObjectId();
-                }
-                logCommand.add(objectId);
-            }
-
             List<RevCommit> commits = new ArrayList<>();
 
-            for (RevCommit revCommit : logCommand.call()) {
-                commits.add(revCommit);
+            try (RevWalk walk = new RevWalk(repo)) {
+                for (Ref ref : repo.getRefDatabase().getRefs(RefDatabase.ALL).values()) {
+                    if (ref.getName().equals(Constants.R_NOTES_COMMITS)) {
+                        continue;
+                    }
+                    if (!ref.isPeeled()) {
+                        ref = repo.peel(ref);
+                    }
+
+                    ObjectId objectId = ref.getPeeledObjectId();
+                    if (objectId == null) {
+                        objectId = ref.getObjectId();
+                    }
+                    walk.markStart(walk.parseCommit(objectId));
+                }
+
+                walk.sort(RevSort.TOPO, true);
+                walk.sort(RevSort.REVERSE, true);
+
+                for (RevCommit commit : walk) {
+                    commits.add(commit);
+                }
             }
 
             Map<ObjectId, ObjectId> idMap = new HashMap<>();
 
-            for (int i = commits.size() - 1; i >= 0; i--) {
-                RevCommit commit = commits.get(i);
-
+            for (RevCommit commit : commits) {
                 System.out.println("Rewriting " + commit.getId());
 
                 CommitBuilder builder = new CommitBuilder();
